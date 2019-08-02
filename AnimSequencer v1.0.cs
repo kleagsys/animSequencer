@@ -1,5 +1,5 @@
 /*
-Create by Paradym
+Create by Kleagsys
 	
 Instructions:
 	Add to any object in the scene.
