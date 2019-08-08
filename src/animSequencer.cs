@@ -31,8 +31,12 @@ public class animSequencer : MVRScript {
 	private UIDynamicButton _startButton;
 	private UIDynamicButton _stopButton;
 	private UIDynamicButton _resetButton;
+	private JSONStorableBool _runOnStartup;
+	private UIDynamicButton _syncStartButton;
+	private UIDynamicButton _syncEndButton;
 	private JSONStorableFloat _animModifier;
-
+	private JSONStorableFloat _animRandomizer;
+	
 	private bool _switch = true;
 	private int _loopCount = 1;
 	private int _animSequence = 0;
@@ -44,17 +48,20 @@ public class animSequencer : MVRScript {
 	private List<JSONStorableFloat> _animLoops = new List<JSONStorableFloat> ();
 	private List<JSONStorableStringChooser> _animChooser = new List<JSONStorableStringChooser> ();
 	private List<UIDynamicPopup> _animChooserPopup = new List<UIDynamicPopup> ();
-
+	
 	private Atom _atomUpdate;
 	private AnimationPattern _animUpdate;
 
 	private float _animTotalTime;
 	private float _animCurrentTime;
+	private System.Random _rng = new System.Random();
+	private float _randomNum;
 
 	// Function to initiate plugin
 	public override void Init () {
 		try {
 			pluginLabelJSON.val = "Animation Sequencer";
+			
 			_startButton = CreateButton ("Start Animations", false);
 			if (_startButton != null) {
 				_startButton.button.onClick.AddListener (startButtonCallback);
@@ -67,22 +74,44 @@ public class animSequencer : MVRScript {
 			if (_resetButton != null) {
 				_resetButton.button.onClick.AddListener (resetButtonCallback);
 			}
+			_runOnStartup = new JSONStorableBool("Run on Startup", false, runOnStartUpCallback);
+			RegisterBool(_runOnStartup);
+            CreateToggle(_runOnStartup, true);
+			
+			_syncStartButton = CreateButton ("Reserved for Future Feature", true);
+			if (_syncStartButton != null) {
+				// Method to align all start steps
+			}
+			
+			_syncEndButton = CreateButton ("Reserved for Future Feature", true);
+			if (_syncEndButton != null) {
+				// Method to align end step with next start step
+			}
+
 			// Modifier used to adjust the animation switching threshold
 			_animModifier = new JSONStorableFloat ("SwitchTime Modifier", 0.05f, 0f, 1f, true, true);
 			RegisterFloat (_animModifier);
-			CreateSlider (_animModifier, true);
+			CreateSlider (_animModifier, false);
+			
+			// Add Random Loop Count
+            _animRandomizer = new JSONStorableFloat("Loop Count Randomizer", 0.0f, 0f, 100f, true, true);
+            RegisterFloat(_animRandomizer);
+			CreateSlider(_animRandomizer, true);
+			
 			// Get a list of all Animations
 			_animationPattern = SuperController.singleton.GetAllAnimationPatterns ();
 			// Create List of Animations for the Dropdown Menu
 			for (var i = 0; i < _animationPattern.Count; i++) {
 				_animList.Add (_animationPattern[i].uid.ToString ());
 			}
+			CreateSpacer(false).height = 12;
 			// Setup Pull Down Interface for Each Animation
 			for (var i = 0; i < _animationPattern.Count; i++) {
 				_animAtoms.Add (SuperController.singleton.GetAtomByUid (_animationPattern[i].uid.ToString ()));
 				_animChooser.Add (new JSONStorableStringChooser ("Animation Chooser", _animList, _animationPattern[i].uid.ToString (), "Select Animation " + i.ToString (), AnimChooserCallback));
 				_animChooserPopup.Add (CreatePopup (_animChooser[i], false));
 				_animChooserPopup[i].labelWidth = 200f;
+				CreateSpacer(false).height = 24;
 				_animLoops.Add (new JSONStorableFloat ("Animation " + i.ToString () + " Loops", 1f, 1f, 100f, true, true));
 				RegisterFloat (_animLoops[i]);
 				CreateSlider (_animLoops[i], true);
@@ -91,11 +120,9 @@ public class animSequencer : MVRScript {
 			for (var i = 0; i < _animationPattern.Count; i++) {
 				if (_animAtoms[i].on) _animAtoms[i].ToggleOn ();
 			}
-
-			//if (!_animAtoms[0].on) _animAtoms[0].ToggleOn();  // <--Uncomment this line if you want the first animation to start on scene load
-
 			_animTotal = _animList.Count;
 			_animTotalTime = _animationPattern[_animSequence].GetTotalTime ();
+			_randomNum = _rng.Next((int)Math.Round(_animRandomizer.val));
 
 		} catch (Exception e) {
 			SuperController.LogError ("Exception caught: " + e);
@@ -109,7 +136,7 @@ public class animSequencer : MVRScript {
 				_switch = true;
 			}
 			if ((_animCurrentTime > (_animTotalTime - Time.deltaTime - _animModifier.val)) && _switch) {
-				if (_loopCount >= _animLoops[_animSequence].val) {
+				if (_loopCount >= _animLoops[_animSequence].val + _randomNum) {
 					// move onto next animation sequence
 					if (_animAtoms[_animSequence].on) _animAtoms[_animSequence].ToggleOn (); // Turn OFF current Animation
 					_animationPattern[_animSequence].ResetAnimation ();
@@ -122,10 +149,10 @@ public class animSequencer : MVRScript {
 					_animTotalTime = _animationPattern[_animSequence].GetTotalTime ();
 					_loopCount = 1;
 					_switch = false;
+					_randomNum = _rng.Next((int)Math.Round(_animRandomizer.val));
 				} else {
 					_loopCount++;
 					_switch = false;
-
 				}
 			}
 		} catch (Exception e) {
@@ -133,7 +160,20 @@ public class animSequencer : MVRScript {
 		}
 	}
 
-	protected void AnimChooserCallback (string s) {
+	private void runOnStartUpCallback (bool b) {
+		if (b)
+		{
+			for (var i = 0; i < _animationPattern.Count; i++) 
+			{
+				if (_animAtoms[i].on) _animAtoms[i].ToggleOn ();
+				_animationPattern[i].Play();
+			}
+			_animationPattern[0].ResetAnimation ();
+			if (!_animAtoms[0].on) _animAtoms[0].ToggleOn ();
+		}
+	}
+
+	private void AnimChooserCallback (string s) {
 		for (var i = 0; i < _animTotal; i++) {
 			_atomUpdate = SuperController.singleton.GetAtomByUid (_animChooser[i].val);
 			_animUpdate = _atomUpdate.GetStorableByID ("AnimationPattern") as AnimationPattern;
@@ -142,7 +182,7 @@ public class animSequencer : MVRScript {
 		}
 	}
 
-	protected void startButtonCallback () {
+	private void startButtonCallback () {
 		_animTotalTime = _animationPattern[0].GetTotalTime ();
 		_loopCount = 1;
 		_animSequence = 0;
@@ -152,20 +192,20 @@ public class animSequencer : MVRScript {
 		_animationPattern[0].Play ();
 	}
 
-	protected void stopButtonCallback () {
+	private void stopButtonCallback () {
 		for (var i = 0; i < _animationPattern.Count; i++) {
-			//_animationPattern[i].Pause();
 			if (_animAtoms[i].on) _animAtoms[i].ToggleOn ();
+			_animationPattern[i].Play();
 		}
 	}
 
-	protected void resetButtonCallback () {
+	private void resetButtonCallback () {
 		for (var i = 0; i < _animationPattern.Count; i++) {
-			//_animationPattern[i].Pause();
 			if (_animAtoms[i].on) _animAtoms[i].ToggleOn ();
-			_animationPattern[i].ResetAndPlay ();
+			_animationPattern[i].ResetAnimation();
+			_animationPattern[i].Play();
 		}
-		_animationPattern[0].Pause ();
-		if (!_animAtoms[0].on) _animAtoms[0].ToggleOn ();
+		_animationPattern[0].Pause();
+		if (!_animAtoms[0].on) _animAtoms[0].ToggleOn();
 	}
 }
